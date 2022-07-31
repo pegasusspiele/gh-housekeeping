@@ -24,7 +24,7 @@ export async function fetchGitHubPackageVersions(
   _GitHubPackageVersions.push(...GitHubPackageVersions);
 
   if (GitHubPackageVersions.length === 100) {
-    await fetchGitHubPackageVersions(GitHubPackageName, _GitHubPackageVersions, ++page);
+    _GitHubPackageVersions.push(await fetchGitHubPackageVersions(GitHubPackageName, _GitHubPackageVersions, ++page));
   }
 
   return _GitHubPackageVersions;
