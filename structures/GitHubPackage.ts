@@ -22,9 +22,7 @@ export class GitHubPackage {
   }
 
   public static async fetchPackagesForOrganization(_organizationName: string): Promise<GitHubPackage[]> {
-    const GitHubApiResponse = await GitHubApiRequest(`https://api.github.com/orgs/${_organizationName}/packages?package_type=container`, {
-      method: "GET",
-    });
+    const GitHubApiResponse = await GitHubApiRequest(`https://api.github.com/orgs/${_organizationName}/packages?package_type=container`);
 
     return (await GitHubApiResponse.json()).map((_GitHubPackageData: GitHubPackageData) => new GitHubPackage(_GitHubPackageData));
   }
