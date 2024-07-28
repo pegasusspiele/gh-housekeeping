@@ -5,4 +5,4 @@
  */
 
 export const GITHUB_ORG_NAME = "pegasusspiele";
-export const DAYS_TO_DELETE = 5; //how many days must a version be old to be allowed to delete it?
+export const DAYS_TO_DELETE = 0; //how many days must a version be old to be allowed to delete it?
