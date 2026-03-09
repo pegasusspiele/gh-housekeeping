@@ -1,7 +1,6 @@
 {
   "tasks": {
-    "run": "deno run --allow-net --allow-env --allow-read housekeeping.ts",
-    "cache": "deno cache housekeeping.ts"
+    "run": "deno run --allow-net --allow-env --env-file=.env housekeeping.ts"
   },
   "lock": false
 }

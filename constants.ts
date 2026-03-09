@@ -1,7 +1,8 @@
 /*
- * Copyright (C) 2022 - 2023 Pegasus Spiele Verlags- und Medienvertriebsgesellschaft mbH, all rights reserved.
+ * Copyright (C) 2022 - 2026 Pegasus Spiele Verlags- und Medienvertriebsgesellschaft mbH, all rights reserved.
  * Unauthorized copying of this file, via any medium is strictly prohibited
  * Proprietary and confidential
+ * Updated in 2026 by Codex (GPT-5).
  */
 
 export const GITHUB_ORG_NAME = "pegasusspiele";

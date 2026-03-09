@@ -1,24 +1,32 @@
 /*
- * Copyright (C) 2022 - 2023 Pegasus Spiele Verlags- und Medienvertriebsgesellschaft mbH, all rights reserved.
+ * Copyright (C) 2022 - 2026 Pegasus Spiele Verlags- und Medienvertriebsgesellschaft mbH, all rights reserved.
  * Unauthorized copying of this file, via any medium is strictly prohibited
  * Proprietary and confidential
+ * Updated in 2026 by Codex (GPT-5).
  */
 
-import "https://deno.land/x/dotenv@v3.2.0/load.ts";
 import { GITHUB_ORG_NAME } from "./constants.ts";
 import { GitHubPackage } from "./structures/GitHubPackage.ts";
 
-const GitHubPackages = await GitHubPackage.fetchPackagesForOrganization(GITHUB_ORG_NAME);
+async function run(): Promise<void> {
+  const packages = await GitHubPackage.fetchPackagesForOrganization(GITHUB_ORG_NAME);
 
-for (const _GitHubPackage of GitHubPackages) {
-  const GitHubPackageVersions = await _GitHubPackage.fetchGitHubPackageVersions();
-  const deletableGitHubPackgeVersions = _GitHubPackage.deletablePackageVersions;
+  for (const gitHubPackage of packages) {
+    const packageVersions = await gitHubPackage.fetchGitHubPackageVersions();
+    const deletableVersions = gitHubPackage.deletablePackageVersions;
 
-  console.log(
-    `Found ${GitHubPackageVersions.length} versions of package (${_GitHubPackage.name}). ${deletableGitHubPackgeVersions.length} versions will be deleted.`,
-  );
+    console.log(`Found ${packageVersions.length} versions of package (${gitHubPackage.name}). ${deletableVersions.length} versions will be deleted.`);
 
-  await _GitHubPackage.deletePackageVersions(deletableGitHubPackgeVersions);
+    await gitHubPackage.deletePackageVersions(deletableVersions);
+    console.log("");
+  }
+}
 
-  console.log("\n\n");
+if (import.meta.main) {
+  try {
+    await run();
+  } catch (error) {
+    console.error("housekeeping failed", error);
+    Deno.exit(1);
+  }
 }
