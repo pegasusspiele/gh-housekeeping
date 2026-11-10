@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Fake `gum` for tests. Answers prompts from a queue instead of the keyboard.
+#
+# $GUM_QUEUE: file with one answer per line, consumed in order by `input` and `choose`.
+#   input:  the answer is the typed value
+#   choose: the answer selects every option that equals it or starts with "<answer> ";
+#           separate several answers with ";" (multi-select), e.g. "app;team/web"
+#   CANCEL: behave like Ctrl-C (exit 130)
+# $GUM_LOG: every prompt, its options and the answer are appended here.
+# `spin` runs its command, `style` prints its text, `pager` passes stdin through.
+
+cmd=$1
+shift
+
+pop() {
+  local answer
+  answer=$(head -n 1 "$GUM_QUEUE")
+  tail -n +2 "$GUM_QUEUE" >"$GUM_QUEUE.tmp" && mv "$GUM_QUEUE.tmp" "$GUM_QUEUE"
+  printf '%s' "$answer"
+}
+
+opts=()
+header=""
+parse() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --header) header=$2; shift 2 ;;
+      --*=* | --no-limit) shift ;;
+      --*) shift 2 ;;
+      *) opts+=("$1"); shift ;;
+    esac
+  done
+}
+
+case "$cmd" in
+  spin)
+    while [ "$1" != "--" ]; do shift; done
+    shift
+    "$@"
+    ;;
+  style) parse "$@"; printf '%s\n' "${opts[@]}" ;;
+  pager) cat ;;
+  input)
+    parse "$@"
+    answer=$(pop)
+    echo "input [$header] -> $answer" >>"$GUM_LOG"
+    [ "$answer" = CANCEL ] && exit 130
+    echo "$answer"
+    ;;
+  choose)
+    parse "$@"
+    answer=$(pop)
+    { echo "choose [$header]"; printf '  option: %s\n' "${opts[@]}"; echo "  -> $answer"; } >>"$GUM_LOG"
+    [ "$answer" = CANCEL ] && exit 130
+    IFS=';' read -r -a tokens <<<"$answer"
+    for t in "${tokens[@]}"; do
+      for o in "${opts[@]}"; do
+        case "$o" in "$t" | "$t "*) echo "$o" ;; esac
+      done
+    done
+    ;;
+  *) echo "stub gum: unsupported command $cmd" >&2; exit 1 ;;
+esac
