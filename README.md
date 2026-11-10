@@ -26,7 +26,7 @@ gh housekeeping
 The interactive run walks you through these steps:
 
 1. **Age:** asks how old a version must be before it may be deleted.
-2. **Packages:** lists every container package that has deletable versions, with counts. Select them with <kbd>space</kbd> and confirm with <kbd>enter</kbd>.
+2. **Packages:** lists every container package that has deletable versions, with counts, and says how many packages were checked in total. Packages with nothing to delete are not listed. Select with <kbd>x</kbd> and confirm with <kbd>enter</kbd>.
 3. **Preview:** shows a summary of what will be deleted. **Show versions** lists every version (id, date, tags) in a pager.
 4. **Confirm:** nothing is deleted until you choose **Delete N versions**. **Cancel** or <kbd>Ctrl</kbd>+<kbd>C</kbd> exits without changes.
 5. **Delete:** prints ✓ or ✗ for each version, then a summary.

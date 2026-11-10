@@ -122,6 +122,9 @@ expect_out "✓ deleted app version 2"
 expect_out "Deleted 2 versions, 1 failed."
 expect_deletes 3
 if grep -q "option: team/web" "$GUM_LOG"; then ok "offers all packages with deletable versions"; else ko "offers all packages with deletable versions"; fi
+if grep -q "option: only-latest" "$GUM_LOG"; then ko "hides packages without deletable versions"; else ok "hides packages without deletable versions"; fi
+expect_out "Found deletable versions in 2 of 3 packages"
+if grep -qF "option: app       delete    3 of    4 versions" "$GUM_LOG"; then ok "labels say what a selection deletes"; else ko "labels say what a selection deletes"; fi
 
 test_case "interactive: cancel at confirmation" 5 "app;team/web" Cancel
 run_tty

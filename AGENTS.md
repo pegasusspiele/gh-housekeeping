@@ -47,7 +47,7 @@ The executable must stay at the repo root and be named `gh-housekeeping`, matchi
 2. **Packages and age.** Package names come from the arguments, or else from `gh api --paginate /orgs/$ORG/packages?package_type=container`. If `--days` is not set, interactive mode asks with `gum input` and non-interactive mode uses `0`. The cutoff is `now − days × 86400`.
 3. **Versions.** For each package it fetches `…/versions` (paginated) into `$TMP/versions.<i>` as JSON lines `{id, created_at, tags}`. `compute_deletable` writes the deletable ids to `$TMP/delete.<i>` and `i, name, total, deletable` to `$TMP/summary`. A version is deletable if its tags do not contain `latest` **and** `created_at < cutoff`.
 4. **Selection.** This produces `$TMP/plan` (`i, name, count`).
-   - Interactive without package arguments: `gum choose --no-limit` over the packages that have deletable versions. Each label starts with the package name, followed by a space.
+   - Interactive without package arguments: `gum choose --no-limit` over the packages that have deletable versions. Each label starts with the package name, followed by a space. A status line above the list says how many of the fetched packages are listed, because the rest are hidden. The header names `x` as the select key, because space does not toggle in gum 2.
    - Otherwise: every package with deletable versions.
 5. **Preview, confirmation, deletion.**
    - Interactive: a `gum style` summary box, then a `gum choose` loop of *Show versions* (in `gum pager`), *Delete N versions* or *Cancel*.
@@ -93,7 +93,7 @@ shellcheck gh-housekeeping test/run.sh test/stubs/*
 How the tests work:
 
 - `test/stubs` is put first on `PATH`.
-- The **gh stub** returns the packages `app` and `team/web`. Each has version `1` (10 days old, tagged `latest`), `2` (10 days, `v1`), `999` (10 days, untagged, DELETE fails) and `4` (new, untagged). DELETE calls are appended to `$STUB_LOG` and never executed.
+- The **gh stub** returns the packages `app` and `team/web`. Each has version `1` (10 days old, tagged `latest`), `2` (10 days, `v1`), `999` (10 days, untagged, DELETE fails) and `4` (1 hour, untagged). A third package, `only-latest`, has just version `1` and never has anything to delete. DELETE calls are appended to `$STUB_LOG` and never executed.
 - The **gum stub** reads one answer per prompt from `$GUM_QUEUE`.
   - For `choose`, an answer selects the options that equal it or start with `"<answer> "`. Separate several answers with `;`.
   - The answer `CANCEL` simulates Ctrl-C (exit 130).

@@ -225,16 +225,23 @@ compute_deletable
 : >"$TMP/plan"
 if [ "$INTERACTIVE" = 1 ] && [ -z "$ARG_PACKAGES" ]; then
   options=()
+  width=0
+  while IFS=$'\t' read -r i name total count; do
+    if [ "$count" -gt 0 ] && [ "${#name}" -gt "$width" ]; then width=${#name}; fi
+  done <"$TMP/summary"
   while IFS=$'\t' read -r i name total count; do
     [ "$count" -gt 0 ] || continue
-    options+=("$(printf '%-40s %4s of %4s versions' "$name" "$count" "$total")")
+    options+=("$(printf '%-*s  delete %4s of %4s versions' "$width" "$name" "$count" "$total")")
   done <"$TMP/summary"
   if [ "${#options[@]}" -eq 0 ]; then
     say "Nothing to delete: no versions older than ${DAYS} days besides 'latest'."
     exit 0
   fi
+  # Packages without deletable versions are not listed, so say how many were left out.
+  say "Found deletable versions in ${#options[@]} of $(grep -c . "$TMP/summary") packages (older than ${DAYS} days, 'latest' kept). Only those are listed."
+  # gum 2 toggles with x or tab. Space does nothing there, so the header names x.
   selection=$(gum choose --no-limit --height 15 \
-    --header "Select packages to clean up (space: select, enter: confirm)" \
+    --header "Select packages to clean up (x: select, enter: confirm)" \
     "${options[@]}") || exit 130
   [ -n "$selection" ] || {
     say "No package selected. Nothing was deleted."
