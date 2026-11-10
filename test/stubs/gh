@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Fake `gh` for tests. Never talks to GitHub.
+#
+# Emulates `gh api [--paginate] PATH [--jq FILTER]` and `gh api -X DELETE PATH`.
+# Every org has the packages "app" and "team/web", each with four versions:
+#   1   10 days old, tagged latest   -> must never be deleted
+#   2   10 days old, tagged v1
+#   999 10 days old, untagged        -> DELETE fails
+#   4   created now, untagged
+# DELETE calls are appended to $STUB_LOG instead of being executed.
+
+path=""
+jqf="."
+method=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --jq) jqf="$2"; shift ;;
+    -X) method="$2"; shift ;;
+    api | --paginate) ;;
+    *) path="$1" ;;
+  esac
+  shift
+done
+
+if [ "$method" = DELETE ]; then
+  echo "DELETE $path" >>"${STUB_LOG:?STUB_LOG must be set}"
+  [[ "$path" == */999 ]] && { echo "gh: Package version not deletable (HTTP 400)" >&2; exit 1; }
+  exit 0
+fi
+
+old=$(date -u -v-10d +%FT%TZ 2>/dev/null || date -u -d '10 days ago' +%FT%TZ)
+new=$(date -u +%FT%TZ)
+case "$path" in
+  */packages\?*) echo '[{"name":"app"},{"name":"team/web"}]' | jq -r "$jqf" ;;
+  */versions*)
+    echo "[
+      {\"id\":1,\"created_at\":\"$old\",\"metadata\":{\"container\":{\"tags\":[\"latest\"]}}},
+      {\"id\":2,\"created_at\":\"$old\",\"metadata\":{\"container\":{\"tags\":[\"v1\"]}}},
+      {\"id\":999,\"created_at\":\"$old\",\"metadata\":{\"container\":{\"tags\":[]}}},
+      {\"id\":4,\"created_at\":\"$new\",\"metadata\":{}}]" | jq -c "$jqf"
+    ;;
+  *) echo "stub gh: unexpected path $path" >&2; exit 1 ;;
+esac

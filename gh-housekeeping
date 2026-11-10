@@ -1,0 +1,331 @@
+#!/usr/bin/env bash
+#
+# Copyright (C) 2022 - 2026 Pegasus Spiele Verlags- und Medienvertriebsgesellschaft mbH, all rights reserved.
+# Unauthorized copying of this file, via any medium is strictly prohibited
+# Proprietary and confidential
+#
+# gh-housekeeping: deletes old container package versions of a GitHub organization.
+# Versions tagged "latest" are always kept.
+#
+# Runs as a GitHub CLI extension (`gh housekeeping`) or directly (`./gh-housekeeping`).
+# Interactive in a terminal (needs gum), non-interactive with --yes or --dry-run.
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Delete old container package versions of a GitHub organization.
+Versions tagged "latest" are always kept.
+
+Usage:
+  gh housekeeping [options] [PACKAGE ...]
+
+Without PACKAGE, all container packages of the organization are considered.
+In a terminal it runs interactively: pick packages, preview, confirm.
+
+Options:
+  -o, --org ORG    organization (default: $GITHUB_ORG_NAME, else pegasusspiele)
+  -d, --days N     only delete versions at least N days old
+                   (default: $DAYS_TO_DELETE, else asked interactively, else 0)
+  -n, --dry-run    only show what would be deleted
+  -y, --yes        no prompts, delete everything that matches (scripts and CI)
+  -h, --help       show this help
+
+Examples:
+  gh housekeeping                          interactive
+  gh housekeeping --dry-run my-package     preview a single package
+  gh housekeeping --yes --days 30          delete versions older than 30 days in all packages
+EOF
+}
+
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+# --- configuration ------------------------------------------------------------
+
+ORG="${GITHUB_ORG_NAME:-pegasusspiele}"
+DAYS="${DAYS_TO_DELETE:-}"
+DRY_RUN="${DRY_RUN:-0}"
+YES=0
+ARG_PACKAGES="" # newline-separated package names from the command line
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o | --org)
+      [ $# -ge 2 ] || die "$1 needs a value"
+      ORG=$2
+      shift 2
+      ;;
+    --org=*)
+      ORG=${1#*=}
+      shift
+      ;;
+    -d | --days)
+      [ $# -ge 2 ] || die "$1 needs a value"
+      DAYS=$2
+      shift 2
+      ;;
+    --days=*)
+      DAYS=${1#*=}
+      shift
+      ;;
+    -n | --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    -y | --yes)
+      YES=1
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      while [ $# -gt 0 ]; do
+        ARG_PACKAGES="${ARG_PACKAGES}$1"$'\n'
+        shift
+      done
+      ;;
+    -*) die "unknown option: $1 (see --help)" ;;
+    *)
+      ARG_PACKAGES="${ARG_PACKAGES}$1"$'\n'
+      shift
+      ;;
+  esac
+done
+
+INTERACTIVE=0
+if [ "$YES" = 0 ] && [ -t 0 ] && [ -t 1 ]; then
+  INTERACTIVE=1
+fi
+if [ "$INTERACTIVE" = 0 ] && [ "$YES" = 0 ] && [ "$DRY_RUN" != 1 ]; then
+  die "not running in a terminal: pass --yes to delete without prompts, or --dry-run to preview"
+fi
+
+command -v gh >/dev/null || die "gh (GitHub CLI) is required: https://cli.github.com/"
+command -v jq >/dev/null || die "jq is required: https://jqlang.org/"
+if [ "$INTERACTIVE" = 1 ]; then
+  command -v gum >/dev/null || die "gum is required for interactive mode (brew install gum), or use --yes / --dry-run"
+fi
+
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+
+# --- helpers --------------------------------------------------------------------
+
+# Status line: dimmed in interactive mode, plain otherwise.
+say() {
+  if [ "$INTERACTIVE" = 1 ]; then gum style --foreground 245 "$*"; else echo "$*"; fi
+}
+
+# Runs "$@" with a spinner in interactive mode. The command must write its results to files.
+with_spinner() {
+  local title=$1 pid status=0
+  shift
+  if [ "$INTERACTIVE" = 0 ]; then
+    "$@"
+    return
+  fi
+  "$@" 2>"$TMP/spinner.err" &
+  pid=$!
+  gum spin --title "$title" -- bash -c "while kill -0 $pid 2>/dev/null; do sleep 0.1; done" || true
+  wait "$pid" || status=$?
+  if [ "$status" -ne 0 ]; then cat "$TMP/spinner.err" >&2; fi
+  return "$status"
+}
+
+package_path() {
+  printf '/orgs/%s/packages/container/%s' "$ORG" "$(jq -rn --arg n "$1" '$n | @uri')"
+}
+
+fetch_packages() {
+  gh api --paginate "/orgs/${ORG}/packages?package_type=container&per_page=100" --jq '.[].name' \
+    </dev/null >"$TMP/packages"
+}
+
+# Writes the versions of package number i to $TMP/versions.i as JSON lines {id, created_at, tags}.
+fetch_versions() {
+  local i=0 name
+  while IFS= read -r name; do
+    i=$((i + 1))
+    [ "$INTERACTIVE" = 1 ] || echo "Fetching package versions for package (${name})"
+    gh api --paginate "$(package_path "$name")/versions?per_page=100" \
+      --jq '.[] | {id, created_at, tags: (.metadata.container.tags // [])}' \
+      </dev/null >"$TMP/versions.$i"
+  done <"$TMP/packages"
+}
+
+# Writes deletable version ids of package i to $TMP/delete.i and one line per package
+# ("i<TAB>name<TAB>total<TAB>deletable") to $TMP/summary.
+compute_deletable() {
+  local i=0 name total count
+  : >"$TMP/summary"
+  while IFS= read -r name; do
+    i=$((i + 1))
+    jq -r --argjson cutoff "$CUTOFF" \
+      'select((.tags | index("latest") | not) and (.created_at | fromdateiso8601) < $cutoff) | .id' \
+      "$TMP/versions.$i" >"$TMP/delete.$i"
+    total=$(jq -s 'length' "$TMP/versions.$i")
+    count=$(grep -c . "$TMP/delete.$i" || true)
+    printf '%s\t%s\t%s\t%s\n' "$i" "$name" "$total" "$count" >>"$TMP/summary"
+  done <"$TMP/packages"
+}
+
+# Prints every version that would be deleted, grouped by package.
+show_details() {
+  local i name count
+  while IFS=$'\t' read -r i name count; do
+    echo "${name} (${count} versions)"
+    jq -r --argjson cutoff "$CUTOFF" \
+      'select((.tags | index("latest") | not) and (.created_at | fromdateiso8601) < $cutoff)
+       | "  \(.id)  \(.created_at)  \(if (.tags | length) > 0 then (.tags | join(", ")) else "<untagged>" end)"' \
+      "$TMP/versions.$i"
+    echo
+  done <"$TMP/plan"
+}
+
+# --- 1. packages and age --------------------------------------------------------
+
+if [ -n "$ARG_PACKAGES" ]; then
+  printf '%s' "$ARG_PACKAGES" >"$TMP/packages"
+else
+  with_spinner "Loading container packages of ${ORG}…" fetch_packages
+fi
+if ! grep -q . "$TMP/packages"; then
+  say "No container packages found in ${ORG}."
+  exit 0
+fi
+
+if [ -z "$DAYS" ]; then
+  if [ "$INTERACTIVE" = 1 ]; then
+    while :; do
+      DAYS=$(gum input --header "Delete versions older than how many days? ('latest' is always kept)" \
+        --value 0 --placeholder "days") || exit 130
+      case "$DAYS" in '' | *[!0-9]*) gum style --foreground 1 "Please enter a whole number." ;; *) break ;; esac
+    done
+  else
+    DAYS=0
+  fi
+fi
+case "$DAYS" in '' | *[!0-9]*) die "--days must be a whole number, got: $DAYS" ;; esac
+CUTOFF=$(jq -n --argjson days "$DAYS" 'now - ($days * 86400)')
+
+# --- 2. versions ----------------------------------------------------------------
+
+with_spinner "Loading versions of $(grep -c . "$TMP/packages") packages…" fetch_versions
+compute_deletable
+
+# --- 3. selection ---------------------------------------------------------------
+
+# $TMP/plan: "i<TAB>name<TAB>count" for every package that will be cleaned up.
+: >"$TMP/plan"
+if [ "$INTERACTIVE" = 1 ] && [ -z "$ARG_PACKAGES" ]; then
+  options=()
+  while IFS=$'\t' read -r i name total count; do
+    [ "$count" -gt 0 ] || continue
+    options+=("$(printf '%-40s %4s of %4s versions' "$name" "$count" "$total")")
+  done <"$TMP/summary"
+  if [ "${#options[@]}" -eq 0 ]; then
+    say "Nothing to delete: no versions older than ${DAYS} days besides 'latest'."
+    exit 0
+  fi
+  selection=$(gum choose --no-limit --height 15 \
+    --header "Select packages to clean up (space: select, enter: confirm)" \
+    "${options[@]}") || exit 130
+  [ -n "$selection" ] || {
+    say "No package selected. Nothing was deleted."
+    exit 0
+  }
+  while IFS=$'\t' read -r i name total count; do
+    while IFS= read -r line; do
+      if [ "${line%% *}" = "$name" ]; then printf '%s\t%s\t%s\n' "$i" "$name" "$count" >>"$TMP/plan"; fi
+    done <<<"$selection"
+  done <"$TMP/summary"
+else
+  while IFS=$'\t' read -r i name total count; do
+    [ "$INTERACTIVE" = 1 ] || echo "Found ${total} versions of package (${name}). ${count} versions will be deleted."
+    if [ "$count" -gt 0 ]; then printf '%s\t%s\t%s\n' "$i" "$name" "$count" >>"$TMP/plan"; fi
+  done <"$TMP/summary"
+fi
+
+TOTAL=$(awk -F'\t' '{ n += $3 } END { print n + 0 }' "$TMP/plan")
+PACKAGE_COUNT=$(grep -c . "$TMP/plan" || true)
+if [ "$TOTAL" -eq 0 ]; then
+  say "Nothing to delete."
+  exit 0
+fi
+
+# --- 4. preview and confirmation ------------------------------------------------
+
+if [ "$INTERACTIVE" = 1 ]; then
+  gum style --border rounded --padding "0 1" --margin "1 0" \
+    "$(awk -F'\t' '{ printf "%-40s %5s versions\n", $2, $3 }' "$TMP/plan")" \
+    "" \
+    "${TOTAL} versions in ${PACKAGE_COUNT} packages of ${ORG} · older than ${DAYS} days · 'latest' kept"
+fi
+
+if [ "$DRY_RUN" = 1 ]; then
+  if [ "$INTERACTIVE" = 1 ]; then
+    show_details
+    say "Dry run: nothing was deleted."
+  else
+    while IFS=$'\t' read -r i name count; do
+      while IFS= read -r id; do
+        echo "[dry-run] would delete version (${id}) of package (${name})"
+      done <"$TMP/delete.$i"
+    done <"$TMP/plan"
+  fi
+  exit 0
+fi
+
+if [ "$INTERACTIVE" = 1 ]; then
+  while :; do
+    action=$(gum choose --header "Delete ${TOTAL} versions? This cannot be undone here." \
+      "Show versions" "Delete ${TOTAL} versions" "Cancel") || exit 130
+    case "$action" in
+      "Show versions") show_details | gum pager ;;
+      Delete*) break ;;
+      *)
+        say "Cancelled. Nothing was deleted."
+        exit 0
+        ;;
+    esac
+  done
+fi
+
+# --- 5. delete ------------------------------------------------------------------
+
+deleted=0
+failed=0
+while IFS=$'\t' read -r i name count; do
+  path=$(package_path "$name")
+  while IFS= read -r id; do
+    if gh api -X DELETE "${path}/versions/${id}" </dev/null >/dev/null 2>"$TMP/delete.err"; then
+      deleted=$((deleted + 1))
+      if [ "$INTERACTIVE" = 1 ]; then
+        gum style --foreground 2 "✓ deleted ${name} version ${id}"
+      else
+        echo "successfully deleted version (${id}) of package (${name})"
+      fi
+    else
+      failed=$((failed + 1))
+      reason=$(tail -n 1 "$TMP/delete.err")
+      if [ "$INTERACTIVE" = 1 ]; then
+        gum style --foreground 1 "✗ failed to delete ${name} version ${id}${reason:+: $reason}" >&2
+      else
+        echo "error during deletion of version (${id}) of package (${name})${reason:+: $reason}" >&2
+      fi
+    fi
+  done <"$TMP/delete.$i"
+done <"$TMP/plan"
+
+echo
+if [ "$failed" -gt 0 ]; then
+  say "Deleted ${deleted} versions, ${failed} failed."
+  exit 1
+fi
+say "Deleted ${deleted} versions."
