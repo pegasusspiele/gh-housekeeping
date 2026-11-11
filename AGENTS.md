@@ -11,7 +11,7 @@ History: until 2026 the project was a Deno/TypeScript script. Those files were r
 
 ## ⚠️ Safety rules (read first)
 
-The CLI makes **real, destructive API calls** against the `pegasusspiele` organization.
+The CLI makes **real, destructive API calls** against whatever organization it is pointed at (`--org` / `GITHUB_ORG_NAME`). There is no default organization.
 
 1. **Never run `gh-housekeeping` / `gh housekeeping` against GitHub without `--dry-run`**, unless the user explicitly asks for a real deletion in the current conversation. Never pass `--yes` on your own.
 2. Without `--days` the age defaults to `0`: **every** version not tagged `latest` is deleted, in **all** packages.
@@ -32,6 +32,7 @@ The CLI makes **real, destructive API calls** against the `pegasusspiele` organi
 | `AGENTS.md`       | This file                                                   |
 | `CLAUDE.md`       | Points Claude Code to `AGENTS.md`                           |
 | `assets/logo.png` | AI-generated logo used in the README                        |
+| `LICENSE`         | MIT license                                                 |
 | `CODEOWNERS`      | `* @gruselhaus`                                              |
 
 The executable must stay at the repo root and be named `gh-housekeeping`, matching the repository name `pegasusspiele/gh-housekeeping`. `gh` requires that for extensions: it installs via `gh extension install pegasusspiele/gh-housekeeping`, and a local install (`gh extension install .`) only works from a folder whose name starts with `gh-`. The repository was called `package-housekeeping` until 2026-11-10. GitHub redirects the old name, but use the new one everywhere.
@@ -43,8 +44,9 @@ The executable must stay at the repo root and be named `gh-housekeeping`, matchi
 1. **Options and mode.** Parses `-o/--org`, `-d/--days`, `-n/--dry-run`, `-y/--yes`, `-h/--help` and package names. It falls back to the legacy env vars `GITHUB_ORG_NAME`, `DAYS_TO_DELETE` and `DRY_RUN`.
    - `INTERACTIVE=1` when stdin and stdout are TTYs and `--yes` is not set.
    - Without a TTY it refuses to run unless `--yes` or `--dry-run` is given.
+   - Without a TTY it also refuses to run without an organization (`--org` or `GITHUB_ORG_NAME`). There is no default.
    - `gum` is required only when `INTERACTIVE=1`.
-2. **Packages and age.** Package names come from the arguments, or else from `gh api --paginate /orgs/$ORG/packages?package_type=container`. If `--days` is not set, interactive mode asks with `gum input` and non-interactive mode uses `0`. The cutoff is `now − days × 86400`.
+2. **Organization, packages and age.** If no organization is set, interactive mode asks with `gum input` until it gets a non-empty answer. Package names come from the arguments, or else from `gh api --paginate /orgs/$ORG/packages?package_type=container`. If `--days` is not set, interactive mode asks with `gum input` and non-interactive mode uses `0`. The cutoff is `now − days × 86400`.
 3. **Versions.** For each package it fetches `…/versions` (paginated) into `$TMP/versions.<i>` as JSON lines `{id, created_at, tags}`. `compute_deletable` writes the deletable ids to `$TMP/delete.<i>` and `i, name, total, deletable` to `$TMP/summary`. A version is deletable if its tags do not contain `latest` **and** `created_at < cutoff`.
 4. **Selection.** This produces `$TMP/plan` (`i, name, count`).
    - Interactive without package arguments: `gum choose --no-limit` over the packages that have deletable versions. Each label starts with the package name, followed by a space. A status line above the list says how many of the fetched packages are listed, because the rest are hidden. The header names `x` as the select key, because space does not toggle in gum 2.
@@ -73,7 +75,7 @@ Details worth knowing:
 
 | Option / variable                  | Default         | Meaning                                                   |
 | ---------------------------------- | --------------- | --------------------------------------------------------- |
-| `-o, --org` / `GITHUB_ORG_NAME`    | `pegasusspiele` | Organization                                              |
+| `-o, --org` / `GITHUB_ORG_NAME`    | ask, else error | Organization                                              |
 | `-d, --days` / `DAYS_TO_DELETE`    | ask, else `0`   | Minimum age (whole days) before a version may be deleted  |
 | `-n, --dry-run` / `DRY_RUN=1`      | off             | Only show, never delete                                   |
 | `-y, --yes`                        | off             | Non-interactive, delete without confirmation              |
@@ -117,6 +119,6 @@ When you add behavior, add a `test_case` to `test/run.sh`. Real gum rendering ca
   - no GNU-only `date -d` or `sed -i` without a fallback
 - Every destructive path must have a confirmation in interactive mode and require `--yes` in non-interactive mode.
 - All documentation, comments and CLI output are in English.
-- Keep the copyright header in `gh-housekeeping`.
+- The project is MIT-licensed (`LICENSE`). Keep the copyright and SPDX header in `gh-housekeeping`.
 - When adding an option, update `usage()`, the tables in `README.md` **and** this file, and `test/run.sh`.
 - Only commit, push or open a PR when the user asks. Commits in this repo are signed.

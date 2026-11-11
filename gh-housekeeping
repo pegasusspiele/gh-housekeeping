@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Copyright (C) 2022 - 2026 Pegasus Spiele Verlags- und Medienvertriebsgesellschaft mbH, all rights reserved.
-# Unauthorized copying of this file, via any medium is strictly prohibited
-# Proprietary and confidential
+# Copyright (c) 2022-2026 Pegasus Spiele Verlags- und Medienvertriebsgesellschaft mbH
+# SPDX-License-Identifier: MIT
+# Licensed under the MIT License, see the LICENSE file.
 #
 # gh-housekeeping: deletes old container package versions of a GitHub organization.
 # Versions tagged "latest" are always kept.
@@ -24,7 +24,8 @@ Without PACKAGE, all container packages of the organization are considered.
 In a terminal it runs interactively: pick packages, preview, confirm.
 
 Options:
-  -o, --org ORG    organization (default: $GITHUB_ORG_NAME, else pegasusspiele)
+  -o, --org ORG    organization (default: $GITHUB_ORG_NAME, else asked interactively;
+                   required without a terminal)
   -d, --days N     only delete versions at least N days old
                    (default: $DAYS_TO_DELETE, else asked interactively, else 0)
   -n, --dry-run    only show what would be deleted
@@ -32,9 +33,9 @@ Options:
   -h, --help       show this help
 
 Examples:
-  gh housekeeping                          interactive
-  gh housekeeping --dry-run my-package     preview a single package
-  gh housekeeping --yes --days 30          delete versions older than 30 days in all packages
+  gh housekeeping                                  interactive
+  gh housekeeping --org my-org --dry-run my-pkg    preview a single package
+  gh housekeeping --org my-org --yes --days 30     delete versions older than 30 days in all packages
 EOF
 }
 
@@ -45,7 +46,7 @@ die() {
 
 # --- configuration ------------------------------------------------------------
 
-ORG="${GITHUB_ORG_NAME:-pegasusspiele}"
+ORG="${GITHUB_ORG_NAME:-}"
 DAYS="${DAYS_TO_DELETE:-}"
 DRY_RUN="${DRY_RUN:-0}"
 YES=0
@@ -104,6 +105,9 @@ if [ "$YES" = 0 ] && [ -t 0 ] && [ -t 1 ]; then
 fi
 if [ "$INTERACTIVE" = 0 ] && [ "$YES" = 0 ] && [ "$DRY_RUN" != 1 ]; then
   die "not running in a terminal: pass --yes to delete without prompts, or --dry-run to preview"
+fi
+if [ "$INTERACTIVE" = 0 ] && [ -z "$ORG" ]; then
+  die "no organization: pass --org ORG or set GITHUB_ORG_NAME"
 fi
 
 command -v gh >/dev/null || die "gh (GitHub CLI) is required: https://cli.github.com/"
@@ -188,7 +192,11 @@ show_details() {
   done <"$TMP/plan"
 }
 
-# --- 1. packages and age --------------------------------------------------------
+# --- 1. organization, packages and age ------------------------------------------
+
+while [ -z "$ORG" ]; do
+  ORG=$(gum input --header "Which GitHub organization?" --placeholder "organization") || exit 130
+done
 
 if [ -n "$ARG_PACKAGES" ]; then
   printf '%s' "$ARG_PACKAGES" >"$TMP/packages"
