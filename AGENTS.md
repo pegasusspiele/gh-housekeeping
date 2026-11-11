@@ -25,7 +25,8 @@ The CLI makes **real, destructive API calls** against whatever organization it i
 | Path              | Purpose                                                     |
 | ----------------- | ----------------------------------------------------------- |
 | `gh-housekeeping` | The whole program (executable, extension entry point)       |
-| `test/run.sh`     | Test suite (non-interactive and interactive)                |
+| `test/run.sh`     | End-to-end tests (non-interactive and interactive)          |
+| `test/unit.sh`    | Unit tests: sources the CLI and calls its functions         |
 | `test/stubs/gh`   | Fake `gh`: fixed packages and versions, logs DELETE calls   |
 | `test/stubs/gum`  | Fake `gum`: answers prompts from a queue file               |
 | `README.md`       | Documentation for humans                                    |
@@ -33,13 +34,14 @@ The CLI makes **real, destructive API calls** against whatever organization it i
 | `CLAUDE.md`       | Points Claude Code to `AGENTS.md`                           |
 | `assets/logo.png` | AI-generated logo used in the README                        |
 | `LICENSE`         | MIT license                                                 |
+| `.github/workflows/ci.yml` | CI: ShellCheck and both test suites on Blacksmith runners |
 | `CODEOWNERS`      | `* @gruselhaus`                                              |
 
 The executable must stay at the repo root and be named `gh-housekeeping`, matching the repository name `pegasusspiele/gh-housekeeping`. `gh` requires that for extensions: it installs via `gh extension install pegasusspiele/gh-housekeeping`, and a local install (`gh extension install .`) only works from a folder whose name starts with `gh-`. The repository was called `package-housekeeping` until 2026-11-10. GitHub redirects the old name, but use the new one everywhere.
 
 ## How the CLI works
 
-`gh-housekeeping` runs top to bottom in five commented sections:
+`gh-housekeeping` first defines its helper functions. A guard after them returns when the file is sourced instead of executed, which is how `test/unit.sh` gets at the functions. Keep everything that executes below that guard. The rest runs top to bottom in five commented sections:
 
 1. **Options and mode.** Parses `-o/--org`, `-d/--days`, `-n/--dry-run`, `-y/--yes`, `-h/--help` and package names. It falls back to the legacy env vars `GITHUB_ORG_NAME`, `DAYS_TO_DELETE` and `DRY_RUN`.
    - `INTERACTIVE=1` when stdin and stdout are TTYs and `--yes` is not set.
@@ -88,11 +90,14 @@ Required token scopes: `read:packages` (listing) and `delete:packages` (deleting
 Run after every change:
 
 ```bash
-test/run.sh                                          # must end with "N passed, 0 failed"
-shellcheck gh-housekeeping test/run.sh test/stubs/*
+test/unit.sh                                         # both must end with "N passed, 0 failed"
+test/run.sh
+shellcheck gh-housekeeping test/run.sh test/unit.sh test/stubs/*
 ```
 
-How the tests work:
+CI (`.github/workflows/ci.yml`) runs the same three commands on every pull request and on pushes to `main`, on a Blacksmith Ubuntu runner. It does not cover macOS Bash 3.2, so run the tests locally on macOS when you touch Bash syntax.
+
+`test/unit.sh` sources the CLI and calls single functions (`package_path`, `compute_deletable`, `show_details`, `fetch_*`, `with_spinner`) with prepared files in `$TMP`. Put rules about which versions are deletable there. `test/run.sh` runs the whole CLI:
 
 - `test/stubs` is put first on `PATH`.
 - The **gh stub** returns the packages `app` and `team/web`. Each has version `1` (10 days old, tagged `latest`), `2` (10 days, `v1`), `999` (10 days, untagged, DELETE fails) and `4` (1 hour, untagged). A third package, `only-latest`, has just version `1` and never has anything to delete. DELETE calls are appended to `$STUB_LOG` and never executed.
@@ -103,7 +108,7 @@ How the tests work:
 - Interactive tests run the CLI inside a pseudo terminal with `script` (BSD and util-linux syntax are both handled), so the TTY check passes.
 - Every test also asserts that version `1` (`latest`) was never deleted.
 
-When you add behavior, add a `test_case` to `test/run.sh`. Real gum rendering can't be tested automatically. If you change gum calls, check them against `gum <command> --help` and ask the user to try the interactive flow.
+When you add behavior, add a `test_case` to `test/run.sh`, and an `expect` to `test/unit.sh` if it changes a function. Real gum rendering can't be tested automatically. If you change gum calls, check them against `gum <command> --help` and ask the user to try the interactive flow.
 
 ## Known limitations
 
