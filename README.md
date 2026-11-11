@@ -7,6 +7,7 @@
 <h1 align="center">gh housekeeping</h1>
 
 <p align="center">
+  <a href="https://github.com/pegasusspiele/gh-housekeeping/actions/workflows/ci.yml"><img src="https://github.com/pegasusspiele/gh-housekeeping/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License"></a>
 </p>
 
@@ -141,9 +142,12 @@ GitHub can usually restore deleted versions for 30 days (package settings → *D
 Issues and pull requests are welcome. The whole program is one Bash script (`gh-housekeeping`) with no build step. Keep it compatible with macOS Bash 3.2 and Linux, and run the tests before you open a pull request:
 
 ```bash
-test/run.sh                                        # tests against fake gh and gum, never touches GitHub
-shellcheck gh-housekeeping test/run.sh test/stubs/*
+test/unit.sh                                       # unit tests for the functions
+test/run.sh                                        # end-to-end tests against fake gh and gum, never touches GitHub
+shellcheck gh-housekeeping test/run.sh test/unit.sh test/stubs/*
 ```
+
+CI runs the same commands on every pull request, on Ubuntu and on macOS with Bash 3.2.
 
 ## For AI agents
 

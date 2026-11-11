@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Lint and test
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Tool versions
+        run: bash --version | head -1 && jq --version && shellcheck --version | sed -n 2p
+      - name: ShellCheck
+        run: shellcheck gh-housekeeping test/run.sh test/unit.sh test/stubs/*
+      - name: Unit tests
+        run: test/unit.sh
+      - name: End-to-end tests
+        run: test/run.sh
+
+  test-macos:
+    name: Test (macOS, Bash 3.2)
+    runs-on: blacksmith-6vcpu-macos-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Tool versions
+        run: sw_vers -productVersion && /bin/bash --version | head -1 && jq --version
+      # /bin/bash is the Bash 3.2 that macOS ships. The tests run the CLI with the same shell.
+      - name: Unit tests
+        run: /bin/bash test/unit.sh
+      - name: End-to-end tests
+        run: /bin/bash test/run.sh

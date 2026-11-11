@@ -44,6 +44,82 @@ die() {
   exit 1
 }
 
+# --- helpers --------------------------------------------------------------------
+
+# Status line: dimmed in interactive mode, plain otherwise.
+say() {
+  if [ "$INTERACTIVE" = 1 ]; then gum style --foreground 245 "$*"; else echo "$*"; fi
+}
+
+# Runs "$@" with a spinner in interactive mode. The command must write its results to files.
+with_spinner() {
+  local title=$1 pid status=0
+  shift
+  if [ "$INTERACTIVE" = 0 ]; then
+    "$@"
+    return
+  fi
+  "$@" 2>"$TMP/spinner.err" &
+  pid=$!
+  gum spin --title "$title" -- bash -c "while kill -0 $pid 2>/dev/null; do sleep 0.1; done" || true
+  wait "$pid" || status=$?
+  if [ "$status" -ne 0 ]; then cat "$TMP/spinner.err" >&2; fi
+  return "$status"
+}
+
+package_path() {
+  printf '/orgs/%s/packages/container/%s' "$ORG" "$(jq -rn --arg n "$1" '$n | @uri')"
+}
+
+fetch_packages() {
+  gh api --paginate "/orgs/${ORG}/packages?package_type=container&per_page=100" --jq '.[].name' \
+    </dev/null >"$TMP/packages"
+}
+
+# Writes the versions of package number i to $TMP/versions.i as JSON lines {id, created_at, tags}.
+fetch_versions() {
+  local i=0 name
+  while IFS= read -r name; do
+    i=$((i + 1))
+    [ "$INTERACTIVE" = 1 ] || echo "Fetching package versions for package (${name})"
+    gh api --paginate "$(package_path "$name")/versions?per_page=100" \
+      --jq '.[] | {id, created_at, tags: (.metadata.container.tags // [])}' \
+      </dev/null >"$TMP/versions.$i"
+  done <"$TMP/packages"
+}
+
+# Writes deletable version ids of package i to $TMP/delete.i and one line per package
+# ("i<TAB>name<TAB>total<TAB>deletable") to $TMP/summary.
+compute_deletable() {
+  local i=0 name total count
+  : >"$TMP/summary"
+  while IFS= read -r name; do
+    i=$((i + 1))
+    jq -r --argjson cutoff "$CUTOFF" \
+      'select((.tags | index("latest") | not) and (.created_at | fromdateiso8601) < $cutoff) | .id' \
+      "$TMP/versions.$i" >"$TMP/delete.$i"
+    total=$(jq -s 'length' "$TMP/versions.$i")
+    count=$(grep -c . "$TMP/delete.$i" || true)
+    printf '%s\t%s\t%s\t%s\n' "$i" "$name" "$total" "$count" >>"$TMP/summary"
+  done <"$TMP/packages"
+}
+
+# Prints every version that would be deleted, grouped by package.
+show_details() {
+  local i name count
+  while IFS=$'\t' read -r i name count; do
+    echo "${name} (${count} versions)"
+    jq -r --argjson cutoff "$CUTOFF" \
+      'select((.tags | index("latest") | not) and (.created_at | fromdateiso8601) < $cutoff)
+       | "  \(.id)  \(.created_at)  \(if (.tags | length) > 0 then (.tags | join(", ")) else "<untagged>" end)"' \
+      "$TMP/versions.$i"
+    echo
+  done <"$TMP/plan"
+}
+
+# Sourcing this file only defines the functions above (test/unit.sh does that).
+if [ "${BASH_SOURCE[0]}" != "$0" ]; then return 0; fi
+
 # --- configuration ------------------------------------------------------------
 
 ORG="${GITHUB_ORG_NAME:-}"
@@ -118,79 +194,6 @@ fi
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-
-# --- helpers --------------------------------------------------------------------
-
-# Status line: dimmed in interactive mode, plain otherwise.
-say() {
-  if [ "$INTERACTIVE" = 1 ]; then gum style --foreground 245 "$*"; else echo "$*"; fi
-}
-
-# Runs "$@" with a spinner in interactive mode. The command must write its results to files.
-with_spinner() {
-  local title=$1 pid status=0
-  shift
-  if [ "$INTERACTIVE" = 0 ]; then
-    "$@"
-    return
-  fi
-  "$@" 2>"$TMP/spinner.err" &
-  pid=$!
-  gum spin --title "$title" -- bash -c "while kill -0 $pid 2>/dev/null; do sleep 0.1; done" || true
-  wait "$pid" || status=$?
-  if [ "$status" -ne 0 ]; then cat "$TMP/spinner.err" >&2; fi
-  return "$status"
-}
-
-package_path() {
-  printf '/orgs/%s/packages/container/%s' "$ORG" "$(jq -rn --arg n "$1" '$n | @uri')"
-}
-
-fetch_packages() {
-  gh api --paginate "/orgs/${ORG}/packages?package_type=container&per_page=100" --jq '.[].name' \
-    </dev/null >"$TMP/packages"
-}
-
-# Writes the versions of package number i to $TMP/versions.i as JSON lines {id, created_at, tags}.
-fetch_versions() {
-  local i=0 name
-  while IFS= read -r name; do
-    i=$((i + 1))
-    [ "$INTERACTIVE" = 1 ] || echo "Fetching package versions for package (${name})"
-    gh api --paginate "$(package_path "$name")/versions?per_page=100" \
-      --jq '.[] | {id, created_at, tags: (.metadata.container.tags // [])}' \
-      </dev/null >"$TMP/versions.$i"
-  done <"$TMP/packages"
-}
-
-# Writes deletable version ids of package i to $TMP/delete.i and one line per package
-# ("i<TAB>name<TAB>total<TAB>deletable") to $TMP/summary.
-compute_deletable() {
-  local i=0 name total count
-  : >"$TMP/summary"
-  while IFS= read -r name; do
-    i=$((i + 1))
-    jq -r --argjson cutoff "$CUTOFF" \
-      'select((.tags | index("latest") | not) and (.created_at | fromdateiso8601) < $cutoff) | .id' \
-      "$TMP/versions.$i" >"$TMP/delete.$i"
-    total=$(jq -s 'length' "$TMP/versions.$i")
-    count=$(grep -c . "$TMP/delete.$i" || true)
-    printf '%s\t%s\t%s\t%s\n' "$i" "$name" "$total" "$count" >>"$TMP/summary"
-  done <"$TMP/packages"
-}
-
-# Prints every version that would be deleted, grouped by package.
-show_details() {
-  local i name count
-  while IFS=$'\t' read -r i name count; do
-    echo "${name} (${count} versions)"
-    jq -r --argjson cutoff "$CUTOFF" \
-      'select((.tags | index("latest") | not) and (.created_at | fromdateiso8601) < $cutoff)
-       | "  \(.id)  \(.created_at)  \(if (.tags | length) > 0 then (.tags | join(", ")) else "<untagged>" end)"' \
-      "$TMP/versions.$i"
-    echo
-  done <"$TMP/plan"
-}
 
 # --- 1. organization, packages and age ------------------------------------------
 
