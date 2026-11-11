@@ -147,7 +147,7 @@ test/run.sh                                        # end-to-end tests against fa
 shellcheck gh-housekeeping test/run.sh test/unit.sh test/stubs/*
 ```
 
-CI runs the same commands on every pull request.
+CI runs the same commands on every pull request, on Ubuntu and on macOS with Bash 3.2.
 
 ## For AI agents
 

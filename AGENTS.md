@@ -34,7 +34,7 @@ The CLI makes **real, destructive API calls** against whatever organization it i
 | `CLAUDE.md`       | Points Claude Code to `AGENTS.md`                           |
 | `assets/logo.png` | AI-generated logo used in the README                        |
 | `LICENSE`         | MIT license                                                 |
-| `.github/workflows/ci.yml` | CI: ShellCheck and both test suites on Blacksmith runners |
+| `.github/workflows/ci.yml` | CI on Blacksmith runners: ShellCheck and tests on Ubuntu, tests on macOS Bash 3.2 |
 | `CODEOWNERS`      | `* @gruselhaus`                                              |
 
 The executable must stay at the repo root and be named `gh-housekeeping`, matching the repository name `pegasusspiele/gh-housekeeping`. `gh` requires that for extensions: it installs via `gh extension install pegasusspiele/gh-housekeeping`, and a local install (`gh extension install .`) only works from a folder whose name starts with `gh-`. The repository was called `package-housekeeping` until 2026-11-10. GitHub redirects the old name, but use the new one everywhere.
@@ -95,7 +95,7 @@ test/run.sh
 shellcheck gh-housekeeping test/run.sh test/unit.sh test/stubs/*
 ```
 
-CI (`.github/workflows/ci.yml`) runs the same three commands on every pull request and on pushes to `main`, on a Blacksmith Ubuntu runner. It does not cover macOS Bash 3.2, so run the tests locally on macOS when you touch Bash syntax.
+CI (`.github/workflows/ci.yml`) runs on every pull request and on pushes to `main`, on Blacksmith runners. The job `Lint and test` runs the same three commands on Ubuntu. The job `Test (macOS, Bash 3.2)` runs both test suites with `/bin/bash` on macOS. Both jobs are required checks for `main`, so update the `protect main` ruleset when you rename a job.
 
 `test/unit.sh` sources the CLI and calls single functions (`package_path`, `compute_deletable`, `show_details`, `fetch_*`, `with_spinner`) with prepared files in `$TMP`. Put rules about which versions are deletable there. `test/run.sh` runs the whole CLI:
 
