@@ -79,15 +79,21 @@ expect_exit 1
 expect_out "pass --yes"
 expect_deletes 0
 
+test_case "requires an organization without a terminal"
+run --dry-run
+expect_exit 1
+expect_out "no organization: pass --org ORG or set GITHUB_ORG_NAME"
+expect_deletes 0
+
 test_case "--dry-run --days 5 lists old versions of all packages"
-run --dry-run --days 5
+run --org acme --dry-run --days 5
 expect_exit 0
 expect_out "[dry-run] would delete version (2) of package (team/web)"
 expect_out "[dry-run] would delete version (999) of package (app)"
 expect_deletes 0
 
 test_case "--yes deletes one package, keeps latest, reports failures"
-run --yes team/web
+run --org acme --yes team/web
 expect_exit 1
 expect_out "successfully deleted version (4) of package (team/web)"
 expect_out "error during deletion of version (999) of package (team/web): gh: Package version not deletable"
@@ -103,7 +109,7 @@ expect_out "[dry-run] would delete version (2) of package (app)"
 expect_deletes 0
 
 test_case "invalid input"
-run --yes --days abc
+run --org acme --yes --days abc
 expect_exit 1
 expect_out "--days must be a whole number"
 run --frob
@@ -115,7 +121,7 @@ expect_out "Usage:"
 
 # --- interactive -----------------------------------------------------------------
 
-test_case "interactive: choose package, show versions, delete" 0 app "Show versions" Delete
+test_case "interactive: asks for the organization, choose package, show versions, delete" "" acme 0 app "Show versions" Delete
 run_tty
 expect_exit 1
 expect_out "✓ deleted app version 2"
@@ -124,29 +130,36 @@ expect_deletes 3
 if grep -q "option: team/web" "$GUM_LOG"; then ok "offers all packages with deletable versions"; else ko "offers all packages with deletable versions"; fi
 if grep -q "option: only-latest" "$GUM_LOG"; then ko "hides packages without deletable versions"; else ok "hides packages without deletable versions"; fi
 expect_out "Found deletable versions in 2 of 3 packages"
+if [ "$(grep -c "input \[Which GitHub organization?\]" "$GUM_LOG")" = 2 ]; then ok "asks again for an empty organization"; else ko "asks again for an empty organization"; fi
+expect_out "packages of acme"
 if grep -qF "option: app       delete    3 of    4 versions" "$GUM_LOG"; then ok "labels say what a selection deletes"; else ko "labels say what a selection deletes"; fi
 
 test_case "interactive: cancel at confirmation" 5 "app;team/web" Cancel
-run_tty
+run_tty --org acme
 expect_exit 0
 expect_out "4 versions in 2 packages"
 expect_out "Cancelled. Nothing was deleted."
 expect_deletes 0
 
 test_case "interactive: invalid age is asked again, nothing old enough" abc 999
-run_tty
+run_tty --org acme
 expect_exit 0
 expect_out "Please enter a whole number."
 expect_out "Nothing to delete"
 expect_deletes 0
 
-test_case "interactive: Ctrl-C at package selection" 0 CANCEL
+test_case "interactive: Ctrl-C at organization prompt" CANCEL
 run_tty
 expect_exit 130
 expect_deletes 0
 
+test_case "interactive: Ctrl-C at package selection" 0 CANCEL
+run_tty --org acme
+expect_exit 130
+expect_deletes 0
+
 test_case "interactive: --dry-run with package argument skips selection"
-run_tty --dry-run --days 0 team/web
+run_tty --org acme --dry-run --days 0 team/web
 expect_exit 0
 expect_out "Dry run: nothing was deleted."
 expect_deletes 0
